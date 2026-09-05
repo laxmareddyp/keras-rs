@@ -1,0 +1,57 @@
+name: GPU Tests
+
+on:
+  workflow_call:
+    inputs:
+      timeout:
+        description: 'Timeout in minutes for each test job'
+        type: number
+        default: 120
+
+permissions:
+  contents: read
+
+jobs:
+  gpu_tests:
+    name: GPU Tests (${{ matrix.backend }})
+    runs-on: linux-x86-g2-16-l4-1gpu
+    timeout-minutes: ${{ inputs.timeout }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [tensorflow, jax, torch]
+
+    container:
+      image: python:3.11-slim
+      options: --privileged --network host
+
+    env:
+      KERAS_BACKEND: ${{ matrix.backend }}
+
+    steps:
+    - name: Checkout ${{ github.ref }}
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Check CUDA Version
+      run: nvidia-smi
+
+    - name: Install Dependencies
+      run: pip install --no-cache-dir -r requirements-${{ matrix.backend }}-cuda.txt
+
+    - name: Verify TF Installation
+      if: ${{ matrix.backend == 'tensorflow'}}
+      run: python3 -c "import tensorflow as tf; print('Tensorflow devices:', tf.config.list_logical_devices()); assert len(tf.config.list_physical_devices('GPU')) > 0"
+
+    - name: Verify JAX Installation
+      if: ${{ matrix.backend == 'jax'}}
+      run: python3 -c "import jax; print('JAX devices:', jax.devices()); assert jax.default_backend() == 'gpu'"
+
+    - name: Verify Torch Installation
+      if: ${{ matrix.backend == 'torch'}}
+      run: python3 -c "import torch; print('Torch devices:', [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]); assert torch.cuda.device_count() > 0"
+
+    - name: Test with pytest
+      run: pytest keras_rs/ --ignore=keras_rs/src/layers/embedding/jax
