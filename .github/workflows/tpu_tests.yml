@@ -1,0 +1,64 @@
+name: TPU Tests
+
+on:
+  workflow_call:
+    inputs:
+      timeout:
+        description: 'Timeout in minutes for each test job'
+        type: number
+        default: 120
+
+permissions:
+  contents: read
+
+jobs:
+  tpu_tests:
+    name: TPU Tests (${{ matrix.backend }})
+    runs-on: linux-x86-ct6e-44-1tpu
+    timeout-minutes: ${{ inputs.timeout }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [tensorflow, jax]
+
+    container:
+      image: python:3.11-slim
+      options: --privileged --network host
+
+    env:
+      KERAS_BACKEND: ${{ matrix.backend }}
+      TPU_NAME: local
+
+    steps:
+    - name: Checkout ${{ github.ref }}
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Install Dependencies
+      run: pip install --no-cache-dir -r requirements-${{ matrix.backend }}-tpu.txt
+
+    - name: Set TF Specific Environment Variables
+      if: ${{ matrix.backend == 'tensorflow'}}
+      run: |
+        echo "PJRT_DEVICE=TPU" >> $GITHUB_ENV
+        echo "NEXT_PLUGGABLE_DEVICE_USE_C_API=true" >> $GITHUB_ENV
+        echo "TF_XLA_FLAGS=--tf_mlir_enable_mlir_bridge=true" >> $GITHUB_ENV
+        pip show libtpu | grep "^Location: " | sed "s/^Location: \(.*\)$/TF_PLUGGABLE_DEVICE_LIBRARY_PATH=\1\/libtpu\/libtpu.so/1" >> $GITHUB_ENV
+
+    - name: Verify TF Installation
+      if: ${{ matrix.backend == 'tensorflow'}}
+      run: python3 -c "import tensorflow as tf; print('Tensorflow devices:', tf.config.list_logical_devices()); assert len(tf.config.list_physical_devices('TPU')) > 0"
+
+    - name: Verify JAX Installation
+      if: ${{ matrix.backend == 'jax'}}
+      run: python3 -c "import jax; print('JAX devices:', jax.devices()); assert jax.default_backend() == 'tpu'"
+
+    - name: Test with pytest (TensorFlow)
+      if: ${{ matrix.backend == 'tensorflow' }}
+      run: pytest keras_rs/ --ignore=keras_rs/src/layers/embedding/jax
+
+    - name: Test with pytest (JAX)
+      if: ${{ matrix.backend == 'jax' }}
+      run: pytest keras_rs/ --ignore=keras_rs/src/layers/embedding/jax/distributed_embedding_test.py

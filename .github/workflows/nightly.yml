@@ -28,14 +28,16 @@ jobs:
             echo "has_recent_commits=true" >> $GITHUB_OUTPUT
           fi
 
-  run-test-for-nightly:
+  cpu_tests:
     needs: [check_commits]
     if: ${{needs.check_commits.outputs.has_recent_commits == 'true'}}
-    uses: ./.github/workflows/actions.yml  # zizmor: ignore[self-repository]
+    uses: ./.github/workflows/cpu_tests.yml  # zizmor: ignore[self-repository]
+    with:
+      timeout: 240
 
   nightly:
     name: Build Wheel file and upload
-    needs: [check_commits, run-test-for-nightly]
+    needs: [check_commits, cpu_tests]
     if: ${{needs.check_commits.outputs.has_recent_commits == 'true'}}
     runs-on: ubuntu-latest
     environment: pypi

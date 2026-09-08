@@ -1,0 +1,42 @@
+name: CPU Tests
+
+on:
+  workflow_call:
+    inputs:
+      timeout:
+        description: 'Timeout in minutes for each test job'
+        type: number
+        default: 120
+
+permissions:
+  contents: read
+
+jobs:
+  cpu_tests:
+    name: CPU Tests (${{ matrix.backend }})
+    runs-on: linux-x86-n2-16
+    timeout-minutes: ${{ inputs.timeout }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [tensorflow, jax, torch]
+
+    container:
+      image: python:3.11-slim
+      options: --privileged --network host
+
+    env:
+      KERAS_BACKEND: ${{ matrix.backend }}
+
+    steps:
+    - name: Checkout ${{ github.ref }}
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Install Dependencies
+      run: pip install --no-cache-dir -r requirements.txt
+
+    - name: Test with pytest
+      run: pytest keras_rs/
